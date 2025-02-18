@@ -31,7 +31,7 @@ def send_email(subject, body):
         print(f"Failed to send email: {e}")
 
 # Twitter Auth Token
-twitter_auth_token = 'abf99ea0fdfd6951aeb5011c1697ae6281955dee'
+twitter_auth_token = '' # Put your Auth Token Here
 
 # File Konfigurasi
 keyword_file = 'keywords.txt'
@@ -56,52 +56,66 @@ else:
     last_keyword = None
     last_date_index = 0
 
-resume = False
-for keyword in keywords:
-    if last_keyword and keyword != last_keyword:
-        continue  # Skip until we reach the last processed keyword
-    
-    resume = True  # Start processing once we reach the last processed keyword
-    if not resume:
-        continue
+found_last_keyword = False
 
-    try:
-        file_name = keyword.replace("#", "").replace(" ", "_").replace("OR", "_or_")
+for keyword in keywords:
+    if last_keyword:
+        if keyword == last_keyword:
+            found_last_keyword = True  # Found the last processed keyword, start processing
+        elif not found_last_keyword:
+            continue  # Skip until we reach the last processed keyword
+
+    # Reset date index when moving to a new keyword
+    if keyword != last_keyword:
+        last_date_index = 0
+
+    file_name = keyword.replace("#", "").replace(" ", "_").replace("OR", "_or_")
+    
+    for i in range(last_date_index, len(dates) - 1):
+        since_date = dates[i]
+        until_date = dates[i + 1]
+        search_keyword = f"{keyword} since:{since_date} until:{until_date} lang:id"
+        filename = f"{file_name}_{since_date}.csv"
+        data_path = f"tweets-data/{filename}"
+        limit = 1
+        tab_option = "LATEST"
         
-        for i in range(last_date_index, len(dates) - 1):
-            since_date = dates[i]
-            until_date = dates[i + 1]
-            search_keyword = f"{keyword} since:{since_date} until:{until_date} lang:id"
-            filename = f"{file_name}_{since_date}.csv"
-            data_path = f"tweets-data/{filename}"
-            limit = 1000
-            tab_option = "LATEST"
-            
-            # Save progress
-            with open(progress_file, "w") as file:
-                file.write(f"{keyword},{i}")
-            
-            # Remove existing file if present
-            if os.path.exists(data_path):
-                os.remove(data_path)
-                print(f"Removed existing file: {data_path}")
-            
-            command = f"npx -y tweet-harvest@2.6.1 -o {filename} -s \"{search_keyword}\" --tab {tab_option} -l {limit} --token {twitter_auth_token}"
-            
+        # Save progress
+        with open(progress_file, "w") as file:
+            file.write(f"{keyword},{i}")
+        
+        # Remove existing file if present
+        if os.path.exists(data_path):
+            os.remove(data_path)
+            print(f"Removed existing file: {data_path}")
+        
+        command = f"npx -y tweet-harvest@2.6.1 -o {filename} -s \"{search_keyword}\" --tab {tab_option} -l {limit} --token {twitter_auth_token}"
+        
+        try:
             subprocess.run(command, shell=True, check=True)
             
             with open(data_path, 'r', encoding='utf-8') as f:
                 first_line = f.readline().strip()
-                if not first_line :
-                    os.remove(data_path)
-                    tab_option = "TOP"
-                    command = f"npx -y tweet-harvest@2.6.1 -o {filename} -s \"{search_keyword}\" --tab {tab_option} -l {limit} --token {twitter_auth_token}"
-                    subprocess.run(command, shell=True, check=True)
-        
-        send_email(f"Keyword Processed: {keyword}", f"Keyword '{keyword}' has been successfully processed.")
-        
-    except subprocess.CalledProcessError as e:
-        error_message = f"Error processing keyword '{keyword}': {traceback.format_exc()}"
-        send_email("Tweet Harvest Error", error_message)
-        print(error_message)
-        break
+                
+            if not first_line:
+                os.remove(data_path)
+                tab_option = "TOP"
+                command = f"npx -y tweet-harvest@2.6.1 -o {filename} -s \"{search_keyword}\" --tab {tab_option} -l {limit} --token {twitter_auth_token}"
+                subprocess.run(command, shell=True, check=True)
+    
+    # send_email(f"Keyword Processed: {keyword}", f"Keyword '{keyword}' has been successfully processed.")
+    
+        except subprocess.CalledProcessError as e:
+            error_message = f"Error processing keyword '{keyword}': {traceback.format_exc()}"
+            # send_email("Tweet Harvest Error", error_message)
+            print(error_message)
+            # break
+
+    # After finishing all dates for the current keyword, update progress file for the next keyword
+    with open(progress_file, "w") as file:
+        next_keyword_index = keywords.index(keyword) + 1
+        if next_keyword_index < len(keywords):
+            next_keyword = keywords[next_keyword_index]
+            file.write(f"{next_keyword},0")  # Start the next keyword from index 0
+        else:
+            file.write("")  # No more keywords left, clear progress
